@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Logic Breach</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <canvas id="matrix" aria-hidden="true"></canvas>
+
+    <main class="shell">
+      <section class="topbar" aria-label="Status da invasao">
+        <div>
+          <p class="kicker">Logic Breach</p>
+          <h1 id="missionTitle">Carregando missão...</h1>
+        </div>
+        <div class="status-grid">
+          <div class="status-box">
+            <span>Tempo</span>
+            <strong id="timer">00:00</strong>
+          </div>
+          <div class="status-box">
+            <span>Rastreamento</span>
+            <strong id="trace">0%</strong>
+          </div>
+          <div class="status-box">
+            <span>Pontos</span>
+            <strong id="score">0</strong>
+          </div>
+        </div>
+      </section>
+
+      <section class="game-grid">
+        <aside class="panel variables-panel">
+          <div class="panel-header">
+            <h2>Variáveis</h2>
+            <span id="missionCounter">1/1</span>
+          </div>
+          <div id="variablesList" class="variables-list"></div>
+        </aside>
+
+        <section class="panel terminal-panel">
+          <div class="terminal-lines" id="terminalLog"></div>
+
+          <div class="system-stage" id="systemStage" aria-label="Visualização do sistema">
+            <div class="stage-header">
+              <span id="stageTitle">Sistema alvo</span>
+              <b id="stageState">Aguardando</b>
+            </div>
+            <div class="scene-area" id="sceneArea"></div>
+            <div class="logic-flow" id="logicFlow"></div>
+          </div>
+
+          <div class="input-zone">
+            <label for="expressionInput">Digite o bypass lógico</label>
+            <textarea
+              id="expressionInput"
+              spellcheck="false"
+              autocomplete="off"
+              placeholder="Ex.: A ∧ T ∧ ¬F"
+            ></textarea>
+
+            <div class="connective-pad" aria-label="Conectivos lógicos">
+              <button type="button" data-insert="¬" title="Negação: não">¬</button>
+              <button type="button" data-insert="∧" title="Conjunção: e">∧</button>
+              <button type="button" data-insert="∨" title="Disjunção: ou">∨</button>
+              <button type="button" data-insert="→" title="Condicional: se... então">→</button>
+              <button type="button" data-insert="↔" title="Bicondicional: se e somente se">↔</button>
+              <button type="button" data-insert="(" title="Abrir parêntese">(</button>
+              <button type="button" data-insert=")" title="Fechar parêntese">)</button>
+            </div>
+
+            <div class="actions">
+              <button type="button" id="submitBtn" class="primary-action">Executar invasão</button>
+              <button type="button" id="clearBtn" class="ghost-action">Limpar</button>
+            </div>
+          </div>
+        </section>
+
+        <aside class="panel intel-panel">
+          <div class="panel-header">
+            <h2>Objetivo</h2>
+            <span id="difficulty">Inicial</span>
+          </div>
+          <p id="objectiveText"></p>
+
+          <div class="rule-card">
+            <h3>Conectivos aceitos</h3>
+            <dl>
+              <div><dt>¬</dt><dd>NOT, !</dd></div>
+              <div><dt>∧</dt><dd>AND, &</dd></div>
+              <div><dt>∨</dt><dd>OR, |</dd></div>
+              <div><dt>→</dt><dd>-></dd></div>
+              <div><dt>↔</dt><dd><-></dd></div>
+            </dl>
+          </div>
+
+          <div class="rule-card">
+            <h3>Resultado</h3>
+            <p id="feedback">Aguardando expressão...</p>
+          </div>
+        </aside>
+      </section>
+    </main>
+
+    <div id="endModal" class="modal" hidden>
+      <div class="modal-dialog">
+        <h2>Invasão concluída</h2>
+        <p id="finalStats"></p>
+        <button type="button" id="restartBtn" class="primary-action">Reiniciar</button>
+      </div>
+    </div>
+
+    <script src="script.js"></script>
+  </body>
+</html>
