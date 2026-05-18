@@ -110,14 +110,24 @@ const missions = [
   },
 ];
 
+let activeMissions = [];
+
 const state = {
   missionIndex: 0,
   score: 0,
   trace: 0,
-  remainingSeconds: missions[0].seconds,
+  remainingSeconds: 0,
   timerId: null,
   startedAt: Date.now(),
+  hintStep: 0,
+  hintTokens: [],
 };
+
+const logQueue = [];
+let logTyping = false;
+let logTypeTimer = null;
+let currentLogEl = null;
+let currentLogText = "";
 
 const elements = {
   matrix: document.querySelector("#matrix"),
@@ -135,6 +145,7 @@ const elements = {
   input: document.querySelector("#expressionInput"),
   submit: document.querySelector("#submitBtn"),
   clear: document.querySelector("#clearBtn"),
+  hint: document.querySelector("#hintBtn"),
   timer: document.querySelector("#timer"),
   trace: document.querySelector("#trace"),
   score: document.querySelector("#score"),
@@ -142,6 +153,8 @@ const elements = {
   endModal: document.querySelector("#endModal"),
   finalStats: document.querySelector("#finalStats"),
   restart: document.querySelector("#restartBtn"),
+  truthTableCard: document.querySelector("#truthTableCard"),
+  truthTable: document.querySelector("#truthTable"),
 };
 
 const tokenTypes = {
@@ -155,7 +168,34 @@ const tokenTypes = {
   VAR: "VAR",
 };
 
+function randomizeMissionValues(mission) {
+  const variables = Object.keys(mission.variables);
+  const expectedAst = parse(mission.expected);
+  const totalRows = 2 ** variables.length;
+  const validRows = [];
+  for (let row = 0; row < totalRows; row++) {
+    const values = {};
+    variables.forEach((name, i) => {
+      values[name] = Boolean(row & (1 << i));
+    });
+    if (evaluate(expectedAst, values)) validRows.push(values);
+  }
+  if (!validRows.length) return;
+  const chosen = validRows[Math.floor(Math.random() * validRows.length)];
+  Object.keys(chosen).forEach((name) => {
+    mission.variables[name].value = chosen[name];
+  });
+}
+
 function startGame() {
+  activeMissions = missions.map((m) => ({
+    ...m,
+    variables: Object.fromEntries(
+      Object.entries(m.variables).map(([k, v]) => [k, { ...v }]),
+    ),
+  }));
+  activeMissions.forEach(randomizeMissionValues);
+
   state.missionIndex = 0;
   state.score = 0;
   state.trace = 0;
@@ -167,12 +207,16 @@ function startGame() {
 function loadMission() {
   const mission = currentMission();
   state.remainingSeconds = mission.seconds;
+  state.hintStep = 0;
+  state.hintTokens = tokenize(mission.expected);
   elements.input.value = "";
   elements.missionTitle.textContent = mission.title;
   elements.missionCounter.textContent = `${state.missionIndex + 1}/${missions.length}`;
   elements.difficulty.textContent = mission.difficulty;
   elements.objectiveText.textContent = mission.objective;
   elements.feedback.textContent = "Aguardando expressão...";
+  elements.feedback.style.color = "";
+  clearTruthTable();
   renderVariables(mission);
   renderScene(mission);
   updateLogicFlow("");
@@ -186,7 +230,7 @@ function loadMission() {
 }
 
 function currentMission() {
-  return missions[state.missionIndex];
+  return activeMissions[state.missionIndex];
 }
 
 function renderVariables(mission) {
@@ -346,17 +390,58 @@ function pulseStage(mode) {
   }, 520);
 }
 
+function flushLog() {
+  if (currentLogEl) currentLogEl.textContent = currentLogText;
+  if (logTypeTimer) clearTimeout(logTypeTimer);
+  logQueue.length = 0;
+  logTyping = false;
+  logTypeTimer = null;
+  currentLogEl = null;
+  currentLogText = "";
+}
+
 function resetLog(lines) {
+  flushLog();
   elements.terminalLog.innerHTML = "";
-  lines.forEach(([type, text]) => addLog(text, type));
+  lines.forEach(([type, text]) => {
+    const line = document.createElement("p");
+    line.className = `log-line ${type}`.trim();
+    line.textContent = `> ${text}`;
+    elements.terminalLog.appendChild(line);
+  });
+  elements.terminalLog.scrollTop = elements.terminalLog.scrollHeight;
 }
 
 function addLog(text, type = "") {
+  logQueue.push({ text, type });
+  if (!logTyping) processNextLog();
+}
+
+function processNextLog() {
+  if (!logQueue.length) { logTyping = false; return; }
+  logTyping = true;
+  const { text, type } = logQueue.shift();
   const line = document.createElement("p");
   line.className = `log-line ${type}`.trim();
-  line.textContent = `> ${text}`;
   elements.terminalLog.appendChild(line);
-  elements.terminalLog.scrollTop = elements.terminalLog.scrollHeight;
+
+  currentLogEl = line;
+  currentLogText = `> ${text}`;
+  let i = 0;
+
+  function typeChar() {
+    line.textContent = currentLogText.slice(0, ++i);
+    elements.terminalLog.scrollTop = elements.terminalLog.scrollHeight;
+    if (i < currentLogText.length) {
+      logTypeTimer = setTimeout(typeChar, 8);
+    } else {
+      logTypeTimer = null;
+      currentLogEl = null;
+      currentLogText = "";
+      processNextLog();
+    }
+  }
+  typeChar();
 }
 
 function startTimer() {
@@ -369,7 +454,7 @@ function startTimer() {
     if (state.remainingSeconds <= 0) {
       state.trace = 100;
       renderScoreboard();
-      addLog("[ALERTA] Tempo esgotado. O sistema completou o rastreamento.", "error");
+      addLog("[ALERTA] Tempo esgotado. Você foi exposto — sistema rastreou sua origem.", "error");
       pulseStage("error");
       endGame(false);
     }
@@ -385,6 +470,105 @@ function renderTimer() {
 function renderScoreboard() {
   elements.trace.textContent = `${state.trace}%`;
   elements.score.textContent = String(state.score);
+}
+
+function showHint() {
+  if (state.hintStep >= state.hintTokens.length) {
+    addLog("[DICA] Sem mais fragmentos disponíveis.", "warn");
+    return;
+  }
+  state.trace = Math.min(100, state.trace + 20);
+  renderScoreboard();
+  const revealed = state.hintTokens
+    .slice(0, state.hintStep + 1)
+    .map((t) => t.value)
+    .join(" ");
+  state.hintStep++;
+  addLog(`[DICA] Fragmento interceptado: ${revealed}`, "warn");
+  if (state.trace >= 100) endGame(false);
+}
+
+function clearTruthTable() {
+  elements.truthTable.innerHTML = "";
+  elements.truthTableCard.hidden = true;
+}
+
+function renderTruthTable(userRaw) {
+  if (!userRaw.trim()) {
+    clearTruthTable();
+    return;
+  }
+
+  let userAst;
+  try {
+    userAst = parse(userRaw);
+  } catch {
+    clearTruthTable();
+    return;
+  }
+
+  const mission = currentMission();
+  const variables = Object.keys(mission.variables);
+  const expectedAst = parse(mission.expected);
+  const currentValues = valuesFromMission(mission);
+  const totalRows = 2 ** variables.length;
+
+  const table = document.createElement("table");
+  table.className = "truth-table";
+
+  const thead = table.createTHead();
+  const headerRow = thead.insertRow();
+  variables.forEach((v) => {
+    const th = document.createElement("th");
+    th.textContent = v;
+    headerRow.appendChild(th);
+  });
+  const thUser = document.createElement("th");
+  thUser.textContent = "Você";
+  headerRow.appendChild(thUser);
+  const thExp = document.createElement("th");
+  thExp.textContent = "Obj";
+  headerRow.appendChild(thExp);
+
+  const tbody = table.createTBody();
+  for (let row = 0; row < totalRows; row++) {
+    const values = {};
+    variables.forEach((name, i) => {
+      values[name] = Boolean(row & (1 << i));
+    });
+
+    let userVal, expVal;
+    try {
+      userVal = evaluate(userAst, values);
+      expVal = evaluate(expectedAst, values);
+    } catch {
+      continue;
+    }
+
+    const isCurrent = variables.every((name) => values[name] === currentValues[name]);
+    const isDiff = userVal !== expVal;
+
+    const tr = tbody.insertRow();
+    tr.className = [isDiff ? "row-diff" : "", isCurrent ? "row-current" : ""].filter(Boolean).join(" ");
+
+    variables.forEach((name) => {
+      const td = tr.insertCell();
+      td.className = values[name] ? "val-true" : "val-false";
+      td.textContent = values[name] ? "V" : "F";
+    });
+
+    const tdUser = tr.insertCell();
+    tdUser.className = userVal ? "val-true" : "val-false";
+    tdUser.textContent = userVal ? "V" : "F";
+
+    const tdExp = tr.insertCell();
+    tdExp.className = expVal ? "val-true" : "val-false";
+    tdExp.textContent = expVal ? "V" : "F";
+  }
+
+  elements.truthTable.innerHTML = "";
+  elements.truthTable.appendChild(table);
+  elements.truthTableCard.hidden = false;
 }
 
 function submitExpression() {
@@ -417,6 +601,7 @@ function submitExpression() {
       return;
     }
 
+    renderTruthTable(raw);
     state.trace = Math.min(100, state.trace + 15);
     renderScoreboard();
     if (!equivalent) {
@@ -463,9 +648,16 @@ function endGame(success) {
   const elapsed = Math.floor((Date.now() - state.startedAt) / 1000);
   const minutes = Math.floor(elapsed / 60);
   const seconds = elapsed % 60;
+  const pad = (n) => String(n).padStart(2, "0");
+
+  const board = saveToLeaderboard(state.score, elapsed);
+
+  document.getElementById("endTitle").textContent = success ? "Invasão concluída" : "Conexão encerrada";
   elements.finalStats.textContent = success
-    ? `Você concluiu todas as missões com ${state.score} pontos em ${minutes}m ${seconds}s.`
-    : `Rastreamento chegou a 100%. Pontuação final: ${state.score}.`;
+    ? `Missões concluídas em ${minutes}m ${pad(seconds)}s. Pontuação: ${state.score}.`
+    : `Exposição 100% — você foi identificado. Pontuação: ${state.score}.`;
+
+  renderLeaderboard(board, state.score);
   elements.endModal.hidden = false;
 }
 
@@ -780,17 +972,147 @@ function setupMatrix() {
   draw();
 }
 
+function getLeaderboard() {
+  try {
+    return JSON.parse(localStorage.getItem("logicbreach_lb") || "[]");
+  } catch {
+    return [];
+  }
+}
+
+function saveToLeaderboard(score, elapsed) {
+  const board = getLeaderboard();
+  const minutes = Math.floor(elapsed / 60);
+  const seconds = elapsed % 60;
+  board.push({ score, time: `${minutes}m ${String(seconds).padStart(2, "0")}s` });
+  board.sort((a, b) => b.score - a.score);
+  if (board.length > 5) board.length = 5;
+  localStorage.setItem("logicbreach_lb", JSON.stringify(board));
+  return board;
+}
+
+function renderLeaderboard(board, newScore) {
+  const section = document.getElementById("leaderboardSection");
+  const list = document.getElementById("leaderboardList");
+  if (!board.length) { section.hidden = true; return; }
+  list.innerHTML = "";
+  let marked = false;
+  board.forEach(({ score, time }) => {
+    const li = document.createElement("li");
+    if (!marked && score === newScore) {
+      li.className = "lb-new";
+      marked = true;
+    }
+    li.innerHTML = `<span class="lb-score">${score} pts</span><span class="lb-meta">${time}</span>`;
+    list.appendChild(li);
+  });
+  section.hidden = false;
+}
+
+function showRanking() {
+  const board = getLeaderboard();
+  const body = document.getElementById("rankingBody");
+  if (!board.length) {
+    body.innerHTML = '<p class="ranking-empty">nenhuma partida registrada ainda</p>';
+  } else {
+    const ol = document.createElement("ol");
+    ol.className = "leaderboard-list";
+    board.forEach(({ score, time }) => {
+      const li = document.createElement("li");
+      li.innerHTML = `<span class="lb-score">${score} pts</span><span class="lb-meta">${time}</span>`;
+      ol.appendChild(li);
+    });
+    body.innerHTML = "";
+    body.appendChild(ol);
+  }
+  document.getElementById("rankingModal").hidden = false;
+}
+
+function runIntro() {
+  const screen = document.getElementById("introScreen");
+  const log = document.getElementById("introLog");
+  const prompt = document.getElementById("introPrompt");
+
+  const lines = [
+    { text: "LOGIC BREACH", cls: "intro-title" },
+    { text: "inicializando...", cls: "" },
+    { text: "[OK] 8 missões de invasão carregadas", cls: "intro-ok" },
+    { text: "CONEXÃO ESTABELECIDA", cls: "intro-warn" },
+    { text: "────────────────────────────────────", cls: "intro-sep" },
+    { text: "MISSÃO", cls: "intro-section" },
+    { text: "você tem acesso a 8 sistemas — cada um trancado por uma condição lógica", cls: "intro-brief" },
+    { text: "sua tarefa — escrever a expressão proposicional que abre cada porta", cls: "intro-brief" },
+    { text: "cada erro sobe sua exposição — 100% e o sistema te identifica", cls: "intro-brief" },
+    { text: "dicas revelam pedaços da resposta — mas custam 20% de exposição cada", cls: "intro-brief" },
+    { text: "────────────────────────────────────", cls: "intro-sep" },
+    { text: "aguardando operador...", cls: "intro-cursor" },
+  ];
+
+  let dismissed = false;
+
+  function dismiss() {
+    if (dismissed) return;
+    dismissed = true;
+    document.removeEventListener("keydown", dismiss);
+    screen.removeEventListener("click", dismiss);
+    screen.classList.add("fade-out");
+    setTimeout(() => { screen.remove(); startGame(); }, 700);
+  }
+
+  function typeLine(index) {
+    if (index >= lines.length) {
+      prompt.hidden = false;
+      return;
+    }
+    const { text, cls } = lines[index];
+    const p = document.createElement("p");
+    p.className = cls;
+    log.appendChild(p);
+
+    if (cls === "intro-sep" || cls === "intro-section") {
+      p.textContent = text;
+      setTimeout(() => typeLine(index + 1), cls === "intro-section" ? 180 : 50);
+      return;
+    }
+
+    const charSpeed = cls === "intro-title" ? 70 : cls === "intro-brief" ? 10 : 14;
+    const pauseAfter = cls === "intro-title" ? 380 : cls === "intro-brief" ? 60 : 90;
+    let i = 0;
+
+    function typeChar() {
+      p.textContent = text.slice(0, ++i);
+      if (i < text.length) {
+        setTimeout(typeChar, charSpeed);
+      } else {
+        setTimeout(() => typeLine(index + 1), pauseAfter);
+      }
+    }
+    typeChar();
+  }
+
+  typeLine(0);
+  setTimeout(() => {
+    document.addEventListener("keydown", dismiss);
+    screen.addEventListener("click", dismiss);
+  }, 600);
+}
+
 document.querySelectorAll("[data-insert]").forEach((button) => {
   button.addEventListener("click", () => insertAtCursor(elements.input, button.dataset.insert));
 });
 
 elements.submit.addEventListener("click", submitExpression);
+elements.hint.addEventListener("click", showHint);
 elements.clear.addEventListener("click", () => {
   elements.input.value = "";
   updateLogicFlow("");
   elements.input.focus();
 });
 elements.restart.addEventListener("click", startGame);
+document.getElementById("rankingBtn").addEventListener("click", showRanking);
+document.getElementById("rankingCloseBtn").addEventListener("click", () => {
+  document.getElementById("rankingModal").hidden = true;
+});
 elements.input.addEventListener("input", () => updateLogicFlow(elements.input.value));
 elements.input.addEventListener("keydown", (event) => {
   if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
@@ -799,4 +1121,4 @@ elements.input.addEventListener("keydown", (event) => {
 });
 
 setupMatrix();
-startGame();
+runIntro();

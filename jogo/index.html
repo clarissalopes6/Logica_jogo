@@ -9,6 +9,13 @@
   <body>
     <canvas id="matrix" aria-hidden="true"></canvas>
 
+    <div id="introScreen" class="intro-screen">
+      <div class="intro-box">
+        <div id="introLog" class="intro-log"></div>
+        <p id="introPrompt" class="intro-prompt" hidden>[ pressione qualquer tecla para iniciar ]</p>
+      </div>
+    </div>
+
     <main class="shell">
       <section class="topbar" aria-label="Status da invasao">
         <div>
@@ -21,7 +28,7 @@
             <strong id="timer">00:00</strong>
           </div>
           <div class="status-box">
-            <span>Rastreamento</span>
+            <span>Exposição</span>
             <strong id="trace">0%</strong>
           </div>
           <div class="status-box">
@@ -29,6 +36,7 @@
             <strong id="score">0</strong>
           </div>
         </div>
+        <button type="button" id="rankingBtn" class="ranking-btn" title="Ver ranking">ranking</button>
       </section>
 
       <section class="game-grid">
@@ -73,6 +81,7 @@
 
             <div class="actions">
               <button type="button" id="submitBtn" class="primary-action">Executar invasão</button>
+              <button type="button" id="hintBtn" class="hint-action">Dica (+20%)</button>
               <button type="button" id="clearBtn" class="ghost-action">Limpar</button>
             </div>
           </div>
@@ -100,14 +109,32 @@
             <h3>Resultado</h3>
             <p id="feedback">Aguardando expressão...</p>
           </div>
+
+          <div class="rule-card truth-table-card" id="truthTableCard" hidden>
+            <h3>Tabela verdade</h3>
+            <p class="truth-table-legend"><span class="tt-legend-current"></span> estado atual &nbsp; <span class="tt-legend-diff"></span> diferença</p>
+            <div id="truthTable" class="truth-table-wrap"></div>
+          </div>
         </aside>
       </section>
     </main>
 
+    <div id="rankingModal" class="modal" hidden>
+      <div class="modal-dialog">
+        <h2>Ranking</h2>
+        <div id="rankingBody"></div>
+        <button type="button" id="rankingCloseBtn" class="ghost-action">Fechar</button>
+      </div>
+    </div>
+
     <div id="endModal" class="modal" hidden>
       <div class="modal-dialog">
-        <h2>Invasão concluída</h2>
+        <h2 id="endTitle">Invasão concluída</h2>
         <p id="finalStats"></p>
+        <div id="leaderboardSection" class="leaderboard-section" hidden>
+          <h3>Ranking</h3>
+          <ol id="leaderboardList" class="leaderboard-list"></ol>
+        </div>
         <button type="button" id="restartBtn" class="primary-action">Reiniciar</button>
       </div>
     </div>
